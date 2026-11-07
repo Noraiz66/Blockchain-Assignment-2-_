@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blockchain Record Manager</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">⛓ BlockRecord</div>
+        <button id="connectButton" class="button secondary">Connect MetaMask</button>
+    </header>
+
+    <main class="container">
+        <section class="hero">
+            <p class="eyebrow">DECENTRALIZED APPLICATION</p>
+            <h1>Blockchain Record Manager</h1>
+            <p class="intro">Save, view and update records on the Ethereum Sepolia test network.</p>
+            <div class="status" id="walletStatus">Wallet not connected</div>
+        </section>
+
+        <section class="panel">
+            <h2>Add a new record</h2>
+            <p>Enter text below and save it to the blockchain.</p>
+            <textarea id="recordInput" placeholder="Type your record here..."></textarea>
+            <button id="addButton" class="button" disabled>Save Record</button>
+        </section>
+
+        <section class="panel">
+            <h2>View a record</h2>
+            <p>Enter the record number. Record numbers start from 0.</p>
+            <div class="inline">
+                <input id="recordIndex" type="number" min="0" placeholder="Record number (e.g. 0)">
+                <button id="viewButton" class="button secondary" disabled>View Record</button>
+            </div>
+            <div id="recordOutput" class="output">Your selected record will appear here.</div>
+        </section>
+
+        <section class="panel">
+            <h2>Update a record</h2>
+            <p>Enter its number and the new text.</p>
+            <input id="updateIndex" type="number" min="0" placeholder="Record number">
+            <textarea id="updateInput" placeholder="Enter the updated record..."></textarea>
+            <button id="updateButton" class="button secondary" disabled>Update Record</button>
+        </section>
+
+        <section class="stats">
+            <div class="stat-card">
+                <span class="stat-label">Total records</span>
+                <strong id="recordCount">-</strong>
+            </div>
+            <div class="stat-card">
+                <span class="stat-label">Contract owner</span>
+                <strong id="ownerAddress">Not loaded</strong>
+            </div>
+        </section>
+
+        <section class="panel info">
+            <h2>How it works</h2>
+            <ul>
+                <li>Connect your MetaMask wallet.</li>
+                <li>Add a record and approve the transaction.</li>
+                <li>Read or update records stored by the smart contract.</li>
+            </ul>
+            <p>Network: Ethereum Sepolia Testnet</p>
+            <a href="https://sepolia.etherscan.io/" target="_blank" rel="noopener">Open Sepolia Etherscan</a>
+        </section>
+
+        <p id="message" class="message" aria-live="polite">Connect your wallet to begin.</p>
+        <footer>Blockchain Record Manager | MG3012 Blockchain Technology for Business</footer>
+    </main>
+
+    <script>
+        // 1. After deploying your contract, paste its address between the quotes below.
+        const CONTRACT_ADDRESS = "0x0C142219457aa4476Be1364B83A1E1b029029599";
+
+        // 2. This ABI describes the functions in SmartContract.sol.
+        const CONTRACT_ABI = [
+            "function addRecord(string _record)",
+            "function getRecord(uint256 _index) view returns (string)",
+            "function updateRecord(uint256 _index, string _newRecord)",
+            "function getRecordCount() view returns (uint256)",
+            "function getOwner() view returns (address)"
+        ];
+
+        let provider;
+        let signer;
+        let contract;
+
+        const connectButton = document.getElementById("connectButton");
+        const addButton = document.getElementById("addButton");
+        const viewButton = document.getElementById("viewButton");
+        const updateButton = document.getElementById("updateButton");
+        const message = document.getElementById("message");
+
+        function showMessage(text, isError = false) {
+            message.textContent = text;
+            message.className = isError ? "message error" : "message";
+        }
+
+        async function loadDetails() {
+            const count = await contract.getRecordCount();
+            const owner = await contract.getOwner();
+            document.getElementById("recordCount").textContent = count.toString();
+            document.getElementById("ownerAddress").textContent =
+                owner.slice(0, 6) + "..." + owner.slice(-4);
+        }
+
+        async function connectWallet() {
+            try {
+                if (!window.ethereum) {
+                    showMessage("MetaMask was not found. Install the MetaMask browser extension.", true);
+                    return;
+                }
+
+                if (CONTRACT_ADDRESS === "PASTE_YOUR_DEPLOYED_CONTRACT_ADDRESS_HERE") {
+                    showMessage("First deploy the contract and paste its address into index.html.", true);
+                    return;
+                }
+
+                await window.ethereum.request({ method: "eth_requestAccounts" });
+                provider = new ethers.BrowserProvider(window.ethereum);
+
+                const network = await provider.getNetwork();
+                if (network.chainId !== 11155111n) {
+                    showMessage("Please switch MetaMask to the Sepolia test network.", true);
+                    return;
+                }
+
+                signer = await provider.getSigner();
+                contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
+                const wallet = await signer.getAddress();
+                document.getElementById("walletStatus").textContent =
+                    "Connected: " + wallet.slice(0, 6) + "..." + wallet.slice(-4);
+                connectButton.textContent = "Wallet Connected";
+
+                addButton.disabled = false;
+                viewButton.disabled = false;
+                updateButton.disabled = false;
+
+                await loadDetails();
+                showMessage("Wallet connected successfully to Sepolia.");
+            } catch (error) {
+                showMessage(error.shortMessage || error.message || "Wallet connection failed.", true);
+            }
+        }
+
+        async function addRecord() {
+            try {
+                const value = document.getElementById("recordInput").value.trim();
+                if (!value) {
+                    showMessage("Please enter a record first.", true);
+                    return;
+                }
+
+                showMessage("Please confirm the transaction in MetaMask...");
+                const tx = await contract.addRecord(value);
+                showMessage("Transaction sent. Waiting for confirmation...");
+                await tx.wait();
+
+                document.getElementById("recordInput").value = "";
+                await loadDetails();
+                showMessage("Record saved successfully! Transaction: " + tx.hash);
+            } catch (error) {
+                showMessage(error.shortMessage || error.message || "Could not save record.", true);
+            }
+        }
+
+        async function viewRecord() {
+            try {
+                const index = document.getElementById("recordIndex").value;
+                if (index === "" || Number(index) < 0) {
+                    showMessage("Enter a valid record number.", true);
+                    return;
+                }
+
+                const record = await contract.getRecord(BigInt(index));
+                document.getElementById("recordOutput").textContent = record;
+                showMessage("Record loaded from the blockchain.");
+            } catch (error) {
+                showMessage(error.shortMessage || error.message || "Could not read record.", true);
+            }
+        }
+
+        async function updateRecord() {
+            try {
+                const index = document.getElementById("updateIndex").value;
+                const value = document.getElementById("updateInput").value.trim();
+
+                if (index === "" || Number(index) < 0 || !value) {
+                    showMessage("Enter a valid record number and new text.", true);
+                    return;
+                }
+
+                showMessage("Please confirm the update in MetaMask...");
+                const tx = await contract.updateRecord(BigInt(index), value);
+                showMessage("Update sent. Waiting for confirmation...");
+                await tx.wait();
+
+                document.getElementById("updateInput").value = "";
+                await loadDetails();
+                showMessage("Record updated successfully! Transaction: " + tx.hash);
+            } catch (error) {
+                showMessage(error.shortMessage || error.message || "Could not update record.", true);
+            }
+        }
+
+        connectButton.addEventListener("click", connectWallet);
+        addButton.addEventListener("click", addRecord);
+        viewButton.addEventListener("click", viewRecord);
+        updateButton.addEventListener("click", updateRecord);
+
+        if (window.ethereum) {
+            window.ethereum.on("accountsChanged", () => window.location.reload());
+            window.ethereum.on("chainChanged", () => window.location.reload());
+        }
+    </script>
+</body>
+</html>
